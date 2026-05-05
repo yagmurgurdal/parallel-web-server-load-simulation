@@ -1,0 +1,6 @@
+# Asenkron HTTP istekleri göndermek için kullanılır.
+aiohttp>=3.9,<4.0
+# CSV sonuçlarını tablo gibi işleyip istatistik çıkarmak için kullanılır.
+pandas>=2.2,<3.0
+# Benchmark sonuçlarını grafik haline getirmek için kullanılır.
+matplotlib>=3.8,<4.0

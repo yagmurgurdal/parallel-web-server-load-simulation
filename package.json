@@ -1,0 +1,16 @@
+{
+  "name": "parallel-web-server-load-simulation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node.js server and Python asyncio load tester for blocking vs non-blocking performance comparisons.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "server": "node index.js",
+    "benchmark": "python run_pipeline.py --overwrite-results",
+    "benchmark:docker": "docker compose up --build --abort-on-container-exit"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  }
+}

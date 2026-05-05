@@ -1,0 +1,38 @@
+services:
+  # Node.js test sunucusu.
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: load-test-server
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # Python tabanlı test koşucu.
+  # Sunucu sağlıklı hale geldikten sonra pipeline scriptini çalıştırır.
+  tester:
+    build:
+      context: .
+      dockerfile: dockerfile.tester
+    container_name: load-test-runner
+    environment:
+      # Docker ağında localhost yerine servis adı kullanılır.
+      BASE_URL: http://server:3000
+      LOAD_LEVELS: 10,100,500
+      REQUEST_TIMEOUT_SECONDS: 30
+      CONNECTION_LIMIT: 0
+      RESULTS_FILE: /app/results/test_results.csv
+    # Pipeline, blocking ve non-blocking testlerini otomatik koşar.
+    command: ["python", "run_pipeline.py", "--skip-server-start", "--overwrite-results"]
+    volumes:
+      # Sonuçları host makineye yazar; container silinse de dosyalar kalır.
+      - ./results:/app/results
+    depends_on:
+      server:
+        condition: service_healthy
