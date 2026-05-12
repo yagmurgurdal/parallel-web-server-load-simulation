@@ -1,8 +1,8 @@
-node_modules
-.DS_Store
-.venv
-__pycache__
+server/node_modules
+server/.npm-cache
+load_tester/__pycache__
+load_tester/.venv
+load_tester/.venv-test
+load_tester/.deps
 *.pyc
-analysis/
-results/
-test_results.csv
+.DS_Store

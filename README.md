@@ -1,183 +1,183 @@
-# Parallel Web Server Load Simulation
+# Parallel Web Server Load Simulation and Optimization
 
-This project explores how **blocking** and **non-blocking** request handling behave under concurrent load in a Node.js application.
+## Project Purpose
+This project compares two request handling approaches in a Node.js web server under concurrent load:
 
-It was built as a compact performance engineering experiment around one important backend idea:
+1. Synchronous blocking model
+2. Asynchronous non-blocking model
 
-> when CPU-bound work blocks the event loop, throughput and responsiveness degrade very differently than in asynchronous waiting workflows.
+The server is tested by a Python `asyncio` load generator that sends many concurrent HTTP requests and records performance metrics such as throughput, response time, and error rate.
 
-The repository combines a lightweight Express server, an asynchronous Python load tester, a reproducible benchmark pipeline, and result analysis tooling.
+## Technologies Used
+- Node.js
+- Express.js
+- Python 3
+- `asyncio`
+- `aiohttp`
+- Docker
+- Docker Compose
 
-## Why This Project Matters
+## Blocking vs Non-blocking
+The `/blocking` endpoint performs CPU-bound busy work on the main thread. While that work is running, the Node.js event loop is blocked, so other requests must wait.
 
-Performance discussions in backend development often stay theoretical. This project turns one of the most important Node.js runtime concepts into a repeatable benchmark:
+The `/non-blocking` endpoint simulates an I/O wait by using `await` with a timer. During that wait, the event loop is free to accept and process other requests.
 
-- what happens when the event loop is blocked by synchronous CPU work
-- how that differs from non-blocking waiting behavior
-- why concurrency, latency, and throughput need to be measured together
+Because of this difference, the asynchronous non-blocking model usually performs better under high concurrency.
 
-Because of that, the repository works well as both a learning project and a portfolio example for systems thinking, concurrency, and backend performance analysis.
+## Project Structure
+```text
+parallel-web-server-load-simulation/
+├── server/
+│   ├── server.js
+│   ├── package.json
+│   └── Dockerfile
+├── load_tester/
+│   ├── load_test.py
+│   ├── requirements.txt
+│   └── Dockerfile
+├── results/
+│   └── test_results.csv
+├── docker-compose.yml
+├── README.md
+└── report.md
+```
 
-## What the Project Includes
-
-- a small Express server with two comparison endpoints
-- an asynchronous Python load tester built with `asyncio` and `aiohttp`
-- a one-command local benchmark pipeline
-- Docker support for containerized execution
-- a result analysis script for producing clean summaries and charts
-
-## Comparison Model
-
-The server exposes two main endpoints:
+## API Endpoints
+- `GET /health`
+  Returns a simple health response for Docker and manual checks.
 
 - `GET /blocking`
-  Runs a CPU-heavy synchronous loop. While this loop is running, the Node.js event loop is occupied and the process becomes less responsive to other requests.
+  Simulates synchronous blocking work on the Node.js main thread.
 
 - `GET /non-blocking`
-  Simulates a 2-second asynchronous I/O-style wait with `setTimeout`. This does not block the event loop in the same way, so the server remains more available while waiting.
+  Simulates asynchronous non-blocking waiting without freezing the event loop.
 
-The goal is not to claim that `setTimeout` is a real I/O workload. The goal is to create a clean educational comparison between CPU-bound blocking work and asynchronous non-blocking waiting.
-
-## Tech Stack
-
-- `Node.js` and `Express` for the demo server
-- `Python`, `asyncio`, and `aiohttp` for concurrent load generation
-- `pandas` for result processing
-- `matplotlib` for benchmark chart generation
-- `Docker` and `Docker Compose` for containerized execution
-
-## Repository Structure
+Both test endpoints also accept an optional `delayMs` query parameter. Example:
 
 ```text
-.
-├── index.js
-├── load_tester.py
-├── run_pipeline.py
-├── analyze_results.py
-├── Dockerfile
-├── dockerfile.tester
-├── docker-compose.yml
-├── requirements.txt
-├── package.json
-└── README.md
+http://localhost:3000/blocking?delayMs=100
+http://localhost:3000/non-blocking?delayMs=100
 ```
 
-Generated benchmark outputs such as CSV files, charts, and temporary analysis files are intentionally excluded from version control.
-
-## Installation
-
-Install Node.js dependencies:
-
+## Docker Run Steps
+### 1. Build and start only the server
 ```bash
+docker compose up --build -d server
+```
+
+### 2. Run the load test
+```bash
+docker compose run --rm load_tester
+```
+
+### 3. Stop containers
+```bash
+docker compose down
+```
+
+The CSV results are written to:
+
+```text
+results/test_results.csv
+```
+
+You can also run everything with a single PowerShell command:
+
+```powershell
+.\run_project.ps1 -UseDocker
+```
+
+## Manual Run Steps
+### 1. Start the Node.js server
+```bash
+cd server
 npm install
-```
-
-Install Python dependencies:
-
-```bash
-python -m pip install -r requirements.txt
-```
-
-## Running the Server
-
-```bash
 npm start
 ```
 
-The server will run on:
-
-- `http://localhost:3000/health`
-- `http://localhost:3000/blocking`
-- `http://localhost:3000/non-blocking`
-
-## Running Individual Load Tests
-
-Blocking endpoint:
-
+### 2. Run the Python load tester in a new terminal
 ```bash
-python load_tester.py --url http://localhost:3000/blocking --users 10,100,500 --connection-limit 0
+python -m pip install -r load_tester/requirements.txt
+python load_tester/load_test.py
 ```
 
-Non-blocking endpoint:
+If you are using PowerShell:
 
-```bash
-python load_tester.py --url http://localhost:3000/non-blocking --users 10,100,500 --connection-limit 0
+```powershell
+python -m pip install -r .\load_tester\requirements.txt
+python .\load_tester\load_test.py
+```
+
+For the easiest Windows flow, run everything with:
+
+```powershell
+.\run_project.ps1
 ```
 
 Useful options:
 
-- `--url` for the target endpoint
-- `--users` for concurrent user counts
-- `--timeout` for per-request timeout
-- `--connection-limit` for client-side connection caps
-- `--results-file` for output CSV path
-- `--overwrite-results` to clear prior outputs
-
-## Running the Full Benchmark Pipeline
-
-This command:
-
-1. starts the Node.js server
-2. waits for `/health`
-3. benchmarks both endpoints
-4. writes benchmark results to CSV
-5. shuts the server down
-
-```bash
-python run_pipeline.py --overwrite-results
+```powershell
+.\run_project.ps1 -SkipInstall
+.\run_project.ps1 -DelayMs 200
+.\run_project.ps1 -UseDocker
 ```
 
-You can also use:
-
-```bash
-npm run benchmark
-```
-
-## Running with Docker
-
-```bash
-docker compose up --build --abort-on-container-exit
-```
-
-This workflow:
-
-1. starts the `server` container
-2. waits for the health check to pass
-3. runs the benchmark pipeline in the `tester` container
-4. writes results to the mounted `results/` folder
-
-## Analyzing Results
-
-After running benchmarks, generate a cleaned summary and charts with:
+## Visual Comparison
+After the load test finishes, you can generate comparison charts with:
 
 ```bash
 python analyze_results.py
 ```
 
-This script:
+This creates the following files inside `results/`:
 
-- filters valid benchmark rows
-- writes a clean summary
-- generates comparison charts
-- produces a Markdown-style benchmark report
+- `throughput_comparison.png`
+- `average_response_time_comparison.png`
+- `error_rate_comparison.png`
 
-## What This Repository Demonstrates
+## How the Load Test Works
+The load tester runs both endpoints separately for these concurrency levels:
 
-- how CPU-bound synchronous work blocks the Node.js event loop
-- how asynchronous waiting behaves under concurrent load
-- why backend performance needs measured evidence
-- how to automate repeatable benchmarks
-- how to connect systems concepts to interpretable outputs
+- 10 users
+- 50 users
+- 100 users
+- 200 users
+- 500 users
 
-## Possible Improvements
+To keep the measurements cleaner, the tester:
 
-Future extensions could include:
+- runs the non-blocking endpoint before the blocking endpoint
+- sends one warm-up request before each endpoint group
+- waits briefly between scenarios
+- uses a larger timeout automatically for heavy blocking scenarios
 
-- a truly I/O-bound workload such as database or file access
-- richer latency metrics such as P95 and P99 by default
-- worker-thread or clustering comparisons
-- dashboard-style visualization of throughput and latency together
+For each test, one request is created per virtual user at the same time. The tool records:
 
-## License
+- endpoint
+- concurrency level
+- total requests
+- successful requests
+- failed requests
+- average response time
+- minimum response time
+- maximum response time
+- throughput
+- error rate
 
-This project is shared for educational and experimental use.
+## How to Read the Results
+- `endpoint`: Which server model was tested.
+- `concurrency_level`: Number of simultaneous virtual users.
+- `total_requests`: Total requests sent in that scenario.
+- `successful_requests`: Requests that returned HTTP 200.
+- `failed_requests`: Requests that timed out, errored, or returned a non-200 response.
+- `average_response_time_ms`: Mean latency in milliseconds.
+- `minimum_response_time_ms`: Fastest response in milliseconds.
+- `maximum_response_time_ms`: Slowest response in milliseconds.
+- `throughput_rps`: Completed requests per second.
+- `error_rate_percent`: Failure percentage.
+
+Expected interpretation:
+
+- The blocking model usually shows increasing response time and lower throughput as concurrency rises.
+- The non-blocking model usually keeps better throughput and lower latency under the same conditions.
+- If error rate rises, the system is struggling to handle that load level.

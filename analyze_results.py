@@ -1,274 +1,125 @@
 import csv
+from collections import defaultdict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-
-# Tüm analiz çıktıları bu klasörde toplanır.
 PROJECT_ROOT = Path(__file__).resolve().parent
-SOURCE_FILE = PROJECT_ROOT / "test_results.csv"
-OUTPUT_DIR = PROJECT_ROOT / "analysis"
-OUTPUT_CSV = OUTPUT_DIR / "latest_clean_results.csv"
-OUTPUT_REPORT = OUTPUT_DIR / "benchmark_summary.md"
-THROUGHPUT_CHART = OUTPUT_DIR / "throughput_comparison.png"
-AVG_LATENCY_CHART = OUTPUT_DIR / "avg_latency_comparison.png"
-P95_LATENCY_CHART = OUTPUT_DIR / "p95_latency_comparison.png"
+RESULTS_DIR = PROJECT_ROOT / "results"
+INPUT_CSV = RESULTS_DIR / "test_results.csv"
+THROUGHPUT_PNG = RESULTS_DIR / "throughput_comparison.png"
+AVG_RESPONSE_PNG = RESULTS_DIR / "average_response_time_comparison.png"
+ERROR_RATE_PNG = RESULTS_DIR / "error_rate_comparison.png"
 
 
-def load_latest_modern_rows(csv_path):
-    # test_results.csv içinde eski ve yeni format satırlar karışık olabilir.
-    # Burada yalnızca 9 kolonlu güncel benchmark satırlarını alıyoruz.
-    with csv_path.open(newline="", encoding="utf-8") as handle:
-        rows = list(csv.reader(handle))
+def load_results(csv_path: Path) -> list[dict]:
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Results file not found: {csv_path}")
 
-    modern_rows = [row for row in rows if len(row) == 9 and row[0] != "Model"]
-    if not modern_rows:
-        raise ValueError("No modern benchmark rows with P95 metrics were found.")
+    with csv_path.open("r", newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
 
-    # Aynı model + kullanıcı sayısı kombinasyonu için son kaydı saklıyoruz.
-    latest_by_key = {}
-    for row in modern_rows:
-        model = row[0]
-        user_count = int(row[2])
-        latest_by_key[(model, user_count)] = {
-            "Model": model,
-            "Target_URL": row[1],
-            "User_Count": user_count,
-            "Throughput_Req_Sec": float(row[3]),
-            "Avg_Latency_Sec": float(row[4]),
-            "P95_Latency_Sec": float(row[5]),
-            "Total_Duration_Sec": float(row[6]),
-            "Success_Rate": float(row[7]),
-            "Failed_Request_Count": int(row[8]),
-        }
+    if not rows:
+        raise ValueError("Results CSV is empty.")
 
-    return [
-        latest_by_key[key]
-        for key in sorted(latest_by_key, key=lambda item: (item[1], item[0]))
-    ]
-
-
-def write_clean_csv(rows, output_path):
-    # Temizlenmiş veri kümesini ayrı bir CSV olarak dışa aktarır.
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = [
-        "Model",
-        "Target_URL",
-        "User_Count",
-        "Throughput_Req_Sec",
-        "Avg_Latency_Sec",
-        "P95_Latency_Sec",
-        "Total_Duration_Sec",
-        "Success_Rate",
-        "Failed_Request_Count",
-    ]
-
-    with output_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-
-
-def build_model_map(rows):
-    # Veriyi model ve kullanıcı sayısı bazında sözlüğe dönüştürür.
-    model_map = {}
+    parsed_rows = []
     for row in rows:
-        model_map.setdefault(row["Model"], {})[row["User_Count"]] = row
-    return model_map
+        parsed_rows.append(
+            {
+                "endpoint": row["endpoint"],
+                "concurrency_level": int(row["concurrency_level"]),
+                "throughput_rps": float(row["throughput_rps"]),
+                "average_response_time_ms": float(row["average_response_time_ms"]),
+                "error_rate_percent": float(row["error_rate_percent"]),
+            }
+        )
+
+    return parsed_rows
 
 
-def format_table(rows):
-    # Markdown rapora doğrudan eklenebilecek tablo metni üretir.
-    lines = [
-        "| Model | Users | Throughput (req/sec) | Avg Latency (s) | P95 Latency (s) | Duration (s) | Success Rate (%) |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
-    ]
+def group_by_endpoint(rows: list[dict]) -> dict[str, list[dict]]:
+    grouped = defaultdict(list)
 
     for row in rows:
-        lines.append(
-            "| "
-            f"{row['Model']} | "
-            f"{row['User_Count']} | "
-            f"{row['Throughput_Req_Sec']:.2f} | "
-            f"{row['Avg_Latency_Sec']:.4f} | "
-            f"{row['P95_Latency_Sec']:.4f} | "
-            f"{row['Total_Duration_Sec']:.2f} | "
-            f"{row['Success_Rate']:.2f} |"
-        )
+        grouped[row["endpoint"]].append(row)
 
-    return "\n".join(lines)
+    for endpoint_rows in grouped.values():
+        endpoint_rows.sort(key=lambda item: item["concurrency_level"])
+
+    return dict(grouped)
 
 
-def comparison_lines(model_map):
-    # Her yük seviyesi için iki model arasındaki oranları hesaplar.
-    blocking = model_map["Blocking"]
-    non_blocking = model_map["Non-Blocking"]
-    lines = []
-
-    for users in sorted(blocking):
-        blocking_row = blocking[users]
-        non_blocking_row = non_blocking[users]
-
-        throughput_ratio = (
-            non_blocking_row["Throughput_Req_Sec"]
-            / blocking_row["Throughput_Req_Sec"]
-        )
-        avg_latency_ratio = (
-            blocking_row["Avg_Latency_Sec"]
-            / non_blocking_row["Avg_Latency_Sec"]
-        )
-        p95_ratio = (
-            blocking_row["P95_Latency_Sec"]
-            / non_blocking_row["P95_Latency_Sec"]
-        )
-
-        if users == 10:
-            headline = (
-                f"At {users} users, the blocking endpoint is faster because its CPU loop "
-                f"finishes much sooner than the non-blocking endpoint's fixed 2-second wait."
-            )
-        elif users == 100:
-            headline = (
-                f"At {users} users, blocking still looks faster on raw throughput and latency, "
-                f"but the gap is narrowing as concurrency rises."
-            )
-        else:
-            headline = (
-                f"At {users} users, the non-blocking endpoint scales better under concurrency."
-            )
-
-        lines.append(
-            "- "
-            + headline
-            + " "
-            + f"Throughput ratio (non-blocking/blocking): {throughput_ratio:.2f}x. "
-            + f"Average latency ratio (blocking/non-blocking): {avg_latency_ratio:.2f}x. "
-            + f"P95 latency ratio (blocking/non-blocking): {p95_ratio:.2f}x."
-        )
-
-    return "\n".join(lines)
-
-
-def build_findings(model_map):
-    # Raporun en önemli kısa bulgularını üretir.
-    blocking = model_map["Blocking"]
-    non_blocking = model_map["Non-Blocking"]
-
-    return "\n".join(
-        [
-            "- All six latest benchmark rows completed with a 100% success rate and zero failed requests.",
-            "- The blocking endpoint has lower latency at 10 users because the CPU loop takes well under 2 seconds, so this is not an apples-to-apples latency comparison at low concurrency.",
-            "- At 100 users, blocking still leads on raw throughput and latency because each request does less total work than the fixed 2-second non-blocking wait.",
-            f"- At 500 users, non-blocking throughput reaches {non_blocking[500]['Throughput_Req_Sec']:.2f} req/sec versus {blocking[500]['Throughput_Req_Sec']:.2f} req/sec for blocking.",
-            f"- At 500 users, blocking average latency rises to {blocking[500]['Avg_Latency_Sec']:.4f}s while non-blocking stays near {non_blocking[500]['Avg_Latency_Sec']:.4f}s.",
-            f"- At 500 users, blocking P95 latency reaches {blocking[500]['P95_Latency_Sec']:.4f}s, which is about {blocking[500]['P95_Latency_Sec'] / non_blocking[500]['P95_Latency_Sec']:.2f}x higher than non-blocking.",
-        ]
-    )
-
-
-def create_line_chart(rows, metric_key, metric_label, output_path):
-    # Belirli bir metriği kullanıcı sayısına karşı çizgi grafik olarak üretir.
+def plot_metric(
+    grouped_rows: dict[str, list[dict]],
+    metric_key: str,
+    title: str,
+    y_label: str,
+    output_path: Path,
+) -> None:
     plt.style.use("seaborn-v0_8-whitegrid")
+    figure, axis = plt.subplots(figsize=(9, 5))
 
-    figure, axis = plt.subplots(figsize=(8, 5))
-    colors = {
-        "Blocking": "#c0392b",
-        "Non-Blocking": "#1f77b4",
+    style_map = {
+        "/blocking": {"label": "Blocking", "color": "#c0392b"},
+        "/non-blocking": {"label": "Non-Blocking", "color": "#1f77b4"},
     }
 
-    model_map = build_model_map(rows)
-    for model, user_map in model_map.items():
-        users = sorted(user_map)
-        values = [user_map[user][metric_key] for user in users]
+    for endpoint, rows in grouped_rows.items():
+        style = style_map.get(endpoint, {"label": endpoint, "color": "#444444"})
+        x_values = [row["concurrency_level"] for row in rows]
+        y_values = [row[metric_key] for row in rows]
 
-        # Her model farklı renkte çizilir ki görsel karşılaştırma kolay olsun.
         axis.plot(
-            users,
-            values,
+            x_values,
+            y_values,
             marker="o",
             linewidth=2.5,
             markersize=7,
-            color=colors[model],
-            label=model,
+            color=style["color"],
+            label=style["label"],
         )
 
-        # Veri noktalarının üstüne ham değeri yazdırarak grafiği tek başına okunabilir tutuyoruz.
-        for user, value in zip(users, values):
-            offset = 0.03 * max(values) if max(values) > 1 else 0.03
-            axis.text(user, value + offset, f"{value:.2f}", ha="center", fontsize=9)
-
-    axis.set_title(f"{metric_label} Comparison", fontsize=14, pad=12)
-    axis.set_xlabel("Concurrent Users")
-    axis.set_ylabel(metric_label)
-    axis.set_xticks(sorted({row["User_Count"] for row in rows}))
+    axis.set_title(title)
+    axis.set_xlabel("Concurrency Level")
+    axis.set_ylabel(y_label)
+    axis.set_xticks([10, 50, 100, 200, 500])
     axis.legend()
     figure.tight_layout()
-    figure.savefig(output_path, dpi=200, bbox_inches="tight")
+    figure.savefig(output_path, dpi=200)
     plt.close(figure)
 
 
-def create_charts(rows):
-    # Üç ana performans metriği için grafik üretir.
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    create_line_chart(rows, "Throughput_Req_Sec", "Throughput (req/sec)", THROUGHPUT_CHART)
-    create_line_chart(rows, "Avg_Latency_Sec", "Average Latency (s)", AVG_LATENCY_CHART)
-    create_line_chart(rows, "P95_Latency_Sec", "P95 Latency (s)", P95_LATENCY_CHART)
+def main() -> None:
+    rows = load_results(INPUT_CSV)
+    grouped_rows = group_by_endpoint(rows)
 
-
-def write_report(rows, output_path):
-    # Temiz veri, grafik referansları ve yorumları tek Markdown dosyasında toplar.
-    model_map = build_model_map(rows)
-    report = "\n".join(
-        [
-            "# Benchmark Data Analysis",
-            "",
-            "This summary is based on the latest complete benchmark rows that include P95 latency values. Older CSV formats were ignored during the analysis.",
-            "",
-            "## Clean Benchmark Table",
-            "",
-            format_table(rows),
-            "",
-            "## Charts",
-            "",
-            f"- Throughput chart: `{THROUGHPUT_CHART.name}`",
-            f"- Average latency chart: `{AVG_LATENCY_CHART.name}`",
-            f"- P95 latency chart: `{P95_LATENCY_CHART.name}`",
-            "",
-            "## Key Findings",
-            "",
-            build_findings(model_map),
-            "",
-            "## Per-Load Comparison",
-            "",
-            comparison_lines(model_map),
-            "",
-            "## Conclusion",
-            "",
-            "The results support the expected concurrency behavior. The blocking endpoint appears faster at low and medium load here because it performs a shorter unit of work than the non-blocking endpoint's fixed 2-second wait. However, its latency grows sharply as concurrency increases, while the non-blocking endpoint stays near a stable latency band and overtakes blocking decisively at high concurrency, especially at 500 users.",
-        ]
+    plot_metric(
+        grouped_rows,
+        metric_key="throughput_rps",
+        title="Throughput Comparison",
+        y_label="Requests Per Second",
+        output_path=THROUGHPUT_PNG,
+    )
+    plot_metric(
+        grouped_rows,
+        metric_key="average_response_time_ms",
+        title="Average Response Time Comparison",
+        y_label="Average Response Time (ms)",
+        output_path=AVG_RESPONSE_PNG,
+    )
+    plot_metric(
+        grouped_rows,
+        metric_key="error_rate_percent",
+        title="Error Rate Comparison",
+        y_label="Error Rate (%)",
+        output_path=ERROR_RATE_PNG,
     )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(report, encoding="utf-8")
-
-
-def main():
-    # Analiz akışı:
-    # 1. Güncel benchmark satırlarını seç
-    # 2. Temiz CSV üret
-    # 3. Grafik üret
-    # 4. Yazılı analiz raporu oluştur
-    rows = load_latest_modern_rows(SOURCE_FILE)
-    write_clean_csv(rows, OUTPUT_CSV)
-    create_charts(rows)
-    write_report(rows, OUTPUT_REPORT)
-    print(f"Clean CSV written to {OUTPUT_CSV}")
-    print(f"Throughput chart written to {THROUGHPUT_CHART}")
-    print(f"Average latency chart written to {AVG_LATENCY_CHART}")
-    print(f"P95 latency chart written to {P95_LATENCY_CHART}")
-    print(f"Summary report written to {OUTPUT_REPORT}")
+    print(f"Generated: {THROUGHPUT_PNG}")
+    print(f"Generated: {AVG_RESPONSE_PNG}")
+    print(f"Generated: {ERROR_RATE_PNG}")
 
 
 if __name__ == "__main__":
-    # Dosya doğrudan çalıştırıldığında veri analizi başlar.
     main()
