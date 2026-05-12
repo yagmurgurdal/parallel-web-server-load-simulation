@@ -1,0 +1,11 @@
+endpoint,concurrency_level,total_requests,successful_requests,failed_requests,average_response_time_ms,minimum_response_time_ms,maximum_response_time_ms,throughput_rps,error_rate_percent
+/non-blocking,10,10,10,0,118.36,114.23,124.08,80.35,0.0
+/non-blocking,50,50,50,0,149.86,131.15,169.26,294.43,0.0
+/non-blocking,100,100,100,0,188.47,155.37,215.89,461.56,0.0
+/non-blocking,200,200,200,0,221.61,139.27,299.76,642.31,0.0
+/non-blocking,500,500,500,0,410.21,143.2,677.73,707.87,0.0
+/blocking,10,10,10,0,561.32,106.8,1016.65,9.83,0.0
+/blocking,50,50,50,0,2591.39,127.4,5050.25,9.9,0.0
+/blocking,100,100,100,0,5110.51,122.36,10094.04,9.91,0.0
+/blocking,200,200,200,0,10776.43,127.74,20932.62,9.55,0.0
+/blocking,500,500,500,0,25998.74,127.72,51727.13,9.67,0.0
