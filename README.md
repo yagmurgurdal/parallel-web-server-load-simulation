@@ -150,13 +150,13 @@ The following charts were generated from the latest benchmark results in `result
 ## Comparison Summary
 The charts show a clear performance difference between the two request handling models.
 
-In the throughput chart, the non-blocking model scales much better as concurrency increases. At 500 concurrent users, the non-blocking endpoint reaches about `720.45 req/s`, while the blocking endpoint stays around `10.17 req/s`. This means the asynchronous model can continue handling new requests much more effectively under heavy load.
+In the throughput chart, the non-blocking model scales much better as concurrency increases. At 500 concurrent users, the non-blocking endpoint reaches about `707.87 req/s`, while the blocking endpoint stays around `9.67 req/s`. This shows that the asynchronous model can continue handling new requests much more effectively under heavy load.
 
-In the average response time chart, the blocking model becomes dramatically slower as concurrency rises. At 10 users, the blocking endpoint already averages about `567.08 ms`, and by 500 users it increases to about `25308.04 ms`. In contrast, the non-blocking endpoint remains much lower, rising from about `127.49 ms` to `422.31 ms`.
+In the average response time chart, the blocking model becomes dramatically slower as concurrency rises. At 10 users, the blocking endpoint already averages about `561.32 ms`, and by 500 users it increases to about `25998.74 ms`. In contrast, the non-blocking endpoint remains much lower, rising from about `118.36 ms` to `410.21 ms`.
 
-In the error rate chart, the non-blocking model keeps a `0.0%` error rate across all tested concurrency levels. The blocking model also stays at `0.0%` until the heaviest test, but at 500 users its error rate rises to `2.6%`. This indicates that the blocking model begins to fail under sustained high concurrency.
+In the error rate chart, both models keep a `0.0%` error rate in this final Docker run. This means all requests eventually completed successfully within the configured timeout window. Even so, the blocking model still shows much worse performance because its throughput stays very low while its response time increases sharply under higher concurrency.
 
-Overall, the visual results support the expected conclusion: the asynchronous non-blocking model performs better under concurrent load because it does not keep the event loop busy while waiting. The blocking model occupies the event loop for each request, which increases queueing delay, raises response time, limits throughput, and eventually causes failures at higher load levels.
+Overall, the visual results support the expected conclusion: the asynchronous non-blocking model performs better under concurrent load because it does not keep the event loop busy while waiting. The blocking model occupies the event loop for each request, which increases queueing delay, raises response time, and limits throughput as the number of concurrent users grows.
 
 ## How the Load Test Works
 The load tester runs both endpoints separately for these concurrency levels:
